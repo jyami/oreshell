@@ -7,6 +7,7 @@ import (
 	"oreshell/myvariables"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 const (
@@ -137,6 +138,18 @@ func (me *Process) hasPipe() bool {
 	return me.pipe != nil
 }
 
+func (me *Process) isLeader() bool {
+	return !me.hasPrevious()
+}
+
+func (me *Process) leader() *Process {
+	p := me
+	for p.hasPrevious() {
+		p = p.previous
+	}
+	return p
+}
+
 func (me *Process) PipeWithNext(next *Process) (err error) {
 
 	me.pipe, err = newPipe()
@@ -211,6 +224,14 @@ func (me *Process) createProcAttrEnv() (env []string) {
 func (me *Process) Start() (err error) {
 	var procAttr os.ProcAttr
 	procAttr.Files, err = me.createProcAttrFiles()
+
+	if me.isLeader() {
+		procAttr.Sys = &syscall.SysProcAttr{Setpgid: true}
+	} else {
+		log.Logger.Printf("leader pid: %v", me.leader().osProcess.Pid)
+		procAttr.Sys = &syscall.SysProcAttr{Setpgid: true, Pgid: me.leader().osProcess.Pid}
+	}
+
 	if me.variablesMap != nil || len(me.variablesMap) > 0 {
 		procAttr.Env = me.createProcAttrEnv()
 	}
@@ -224,6 +245,7 @@ func (me *Process) Start() (err error) {
 		log.Logger.Fatalf("os.StartProcess %v", err)
 		return err
 	}
+	log.Logger.Printf("me.commnd %v pid: %v", me.command, me.osProcess.Pid)
 
 	return nil
 }
