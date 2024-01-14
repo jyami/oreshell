@@ -37,6 +37,7 @@ const (
 	ItemRedirectionOutChar
 	ItemRedirectionFDNumChar
 	ItemPipeChar
+	ItemAmpersandChar
 )
 
 const eof = -1
@@ -165,6 +166,8 @@ func lexText(me *Lexer) stateFn {
 		}
 	} else if r == '|' {
 		return lexPipeChar
+	} else if r == '&' {
+		return lexAmpersand
 	} else {
 		return lexString
 	}
@@ -259,5 +262,12 @@ func lexPipeChar(me *Lexer) stateFn {
 	log.Logger.Printf("lexPipeChar\n")
 	me.next()
 	me.emit(ItemPipeChar)
+	return lexText
+}
+
+func lexAmpersand(me *Lexer) stateFn {
+	log.Logger.Printf("lexAmpersand\n")
+	me.next()
+	me.emit(ItemAmpersandChar)
 	return lexText
 }

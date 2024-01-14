@@ -16,6 +16,7 @@ const (
 	FoundEOF foundItemType = iota
 	FoundPipe
 	FoundError
+	FoundAmpersand
 	Other
 )
 
@@ -55,6 +56,13 @@ func (me Parser) parseWord(l lexer.ILexer) (word string, found foundItemType, er
 				l.NextItem()
 			}
 			return word, FoundPipe, nil
+		} else if token.Type == lexer.ItemAmpersandChar {
+			log.Logger.Printf("found AmpersandChar\n")
+			l.NextItem()
+			for l.PeekItem().Type == lexer.ItemWhitespace {
+				l.NextItem()
+			}
+			return word, FoundAmpersand, nil
 		} else if token.Type == lexer.ItemEOF {
 			log.Logger.Printf("found eof %s\n", word)
 			l.NextItem()
@@ -155,7 +163,7 @@ func (me Parser) parseWordsAndRedirections(l lexer.ILexer) (words []string, rs [
 			}
 		}
 
-		if found == FoundEOF || found == FoundPipe {
+		if found == FoundEOF || found == FoundPipe || found == FoundAmpersand {
 			log.Logger.Printf("parseWordsAndRedirections words:<%s>\n", words)
 			log.Logger.Printf("parseWordsAndRedirections end\n")
 			return words, rs, found, nil
@@ -197,20 +205,22 @@ func (me Parser) devideWords(wordsIncludeAssignVariables []string) (map[string]s
 }
 
 func (me Parser) ParsePipelineSequence(l lexer.ILexer) (ps *ast.PipelineSequence, err error) {
-	ps = &ast.PipelineSequence{}
-	sc := &ast.SimpleCommand{}
-	sc, found, err := me.parseSimpleCommand(l)
-	if err != nil {
-		return nil, err
-	}
-	ps.SimpleCommands = append(ps.SimpleCommands, sc)
+	ps = &ast.PipelineSequence{Foreground: true}
 
-	for found == FoundPipe {
-		sc, found, err = me.parseSimpleCommand(l)
+	for {
+		sc, found, err := me.parseSimpleCommand(l)
 		if err != nil {
 			return nil, err
 		}
 		ps.SimpleCommands = append(ps.SimpleCommands, sc)
+
+		if found != FoundPipe {
+			if found == FoundAmpersand {
+				ps.Foreground = false
+			}
+			log.Logger.Printf("ParsePipelineSequence %v\n", found)
+			break
+		}
 	}
 
 	return ps, nil

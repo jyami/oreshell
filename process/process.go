@@ -7,6 +7,8 @@ import (
 	"oreshell/myvariables"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -37,6 +39,7 @@ type Process struct {
 	pipe         *Pipe
 	osProcess    *os.Process
 	variablesMap map[string]string
+	wg           *sync.WaitGroup
 }
 
 // 該当パスが存在するかどうか
@@ -102,7 +105,7 @@ func (me *Pipe) close() {
 	me.writer.Close()
 }
 
-func NewProcess(simpleCommand *ast.SimpleCommand) (*Process, error) {
+func NewProcess(simpleCommand *ast.SimpleCommand, wg *sync.WaitGroup) (*Process, error) {
 	// 該当するプログラムを探す
 	command, err := absPathWithPATH(string(simpleCommand.CommandName()))
 	if err != nil {
@@ -122,6 +125,7 @@ func NewProcess(simpleCommand *ast.SimpleCommand) (*Process, error) {
 			pipe:         nil,
 			osProcess:    nil,
 			variablesMap: simpleCommand.Variables(),
+			wg:           wg,
 		},
 		nil
 }
@@ -130,7 +134,7 @@ func (me *Process) hasPrevious() bool {
 	return me.previous != nil
 }
 
-func (me *Process) hasNext() bool {
+func (me *Process) HasNext() bool {
 	return me.next != nil
 }
 
@@ -148,6 +152,18 @@ func (me *Process) leader() *Process {
 		p = p.previous
 	}
 	return p
+}
+
+func (me *Process) ToCommandString() (s string) {
+	s = strings.Join(me.argv, " ")
+	for _, v := range *me.redirections {
+		if v.Direction() == ast.IN {
+			s = fmt.Sprintf("%s < %s", s, v.FilePath())
+		} else {
+			s = fmt.Sprintf("%s > %s", s, v.FilePath())
+		}
+	}
+	return s
 }
 
 func (me *Process) PipeWithNext(next *Process) (err error) {
@@ -221,15 +237,15 @@ func (me *Process) createProcAttrEnv() (env []string) {
 
 }
 
-func (me *Process) Start() (err error) {
+func (me *Process) Start(foreground bool) (err error) {
 	var procAttr os.ProcAttr
 	procAttr.Files, err = me.createProcAttrFiles()
 
 	if me.isLeader() {
-		procAttr.Sys = &syscall.SysProcAttr{Setpgid: true}
+		procAttr.Sys = &syscall.SysProcAttr{Setpgid: true, Foreground: foreground}
 	} else {
 		log.Logger.Printf("leader pid: %v", me.leader().osProcess.Pid)
-		procAttr.Sys = &syscall.SysProcAttr{Setpgid: true, Pgid: me.leader().osProcess.Pid}
+		procAttr.Sys = &syscall.SysProcAttr{Setpgid: true, Pgid: me.leader().osProcess.Pid, Foreground: foreground}
 	}
 
 	if me.variablesMap != nil || len(me.variablesMap) > 0 {
@@ -240,6 +256,9 @@ func (me *Process) Start() (err error) {
 	}
 
 	log.Logger.Printf("me.argv : %v", me.argv)
+	log.Logger.Printf("procAttr: %v", procAttr)
+	log.Logger.Printf("procAttr.Files: %v", procAttr.Files)
+	log.Logger.Printf("procAttr.Files[0].Name(): %v", procAttr.Files[0].Name())
 	me.osProcess, err = os.StartProcess(me.command, me.argv, &procAttr)
 	if err != nil {
 		log.Logger.Fatalf("os.StartProcess %v", err)
@@ -247,19 +266,23 @@ func (me *Process) Start() (err error) {
 	}
 	log.Logger.Printf("me.commnd %v pid: %v", me.command, me.osProcess.Pid)
 
-	return nil
-}
+	go func() {
+		ps, err := me.osProcess.Wait()
+		if err != nil {
+			log.Logger.Fatalf("process.Wait %v", err)
+		} else {
+			log.Logger.Printf("%v : ps.String() : %s", me.argv, ps.String())
+			//log.Logger.Printf("ps.Sys() Signal(): %s", ps.Sys().(syscall.WaitStatus).Signal().String())
+			//log.Logger.Printf("ps.Sys() Stopignal(): %s", ps.Sys().(syscall.WaitStatus).StopSignal().String())
+			//log.Logger.Panicf("ps.String() : %#v", ps.SysUsage())
+		}
 
-func (me *Process) Wait() (err error) {
-	_, err = me.osProcess.Wait()
-	if err != nil {
-		log.Logger.Fatalf("process.Wait %v", err)
-		return err
-	}
+		if me.hasPipe() {
+			me.pipe.close()
+		}
 
-	if me.hasPipe() {
-		me.pipe.close()
-	}
+		me.wg.Done()
+	}()
 
 	return nil
 }

@@ -6,13 +6,15 @@ import (
 	"io"
 	"oreshell/ast"
 	builtin "oreshell/builtin_command"
+	"oreshell/job"
 	"oreshell/lexer"
 	"oreshell/log"
 	"oreshell/myvariables"
 	"oreshell/parser"
-	"oreshell/process"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 )
 
 func init() {
@@ -24,20 +26,33 @@ func init() {
 	}
 }
 
+var pgrpid int = 0
+
+func getPgrpId() int {
+	if pgrpid == 0 {
+		pgrpid = job.Tcgetpgrp()
+	}
+	return pgrpid
+}
+
 // 外部コマンドを実行する
 func execExternalCommand(pipelineSequence *ast.PipelineSequence) (err error) {
-	ps, err := process.NewPipelineSequence(pipelineSequence)
+
+	j, err := job.NewJob(pipelineSequence)
 	if err != nil {
 		return err
 	}
-	err = ps.Exec()
+	err = j.Exec(getPgrpId())
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
 func main() {
+
+	signal.Ignore(syscall.SIGTSTP, syscall.SIGTTIN, syscall.SIGTTOU)
 
 	// 標準入力から文字列を読み取る準備
 	reader := bufio.NewReader(os.Stdin)
@@ -53,6 +68,19 @@ func main() {
 
 	// ずっとループ
 	for {
+	L:
+		for {
+			select {
+			// キューにメッセージが貯まっていれば、それを一つ取り出して
+			case v := <-job.JobStatusNotify:
+				log.Logger.Printf("jobstatusnotify %s", v)
+				fmt.Fprintln(os.Stderr, v)
+			// キューにメッセージがなければ
+			default:
+				break L
+			}
+		}
+
 		// プロンプトを表示してユーザに入力を促す
 		fmt.Printf("(ore) > ")
 

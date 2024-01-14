@@ -83,4 +83,5 @@ func (me *SimpleCommand) IsAssignVariablesOnly() bool {
 
 type PipelineSequence struct {
 	SimpleCommands []*SimpleCommand
+	Foreground     bool // false:Background
 }
