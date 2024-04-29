@@ -64,6 +64,7 @@ func main() {
 		builtin.CommandNameExit:   builtin.Exit,
 		builtin.CommandNameSet:    builtin.Set,
 		builtin.CommandNameUnset:  builtin.Unset,
+		builtin.CommandNameJobs:   builtin.Jobs,
 	}
 
 	// ずっとループ
@@ -82,7 +83,7 @@ func main() {
 		}
 
 		// プロンプトを表示してユーザに入力を促す
-		fmt.Printf("(ore) > ")
+		fmt.Fprintf(os.Stdout, "(ore) > ")
 
 		// 標準入力から文字列(コマンド)を読み込む
 		line, _, err := reader.ReadLine()

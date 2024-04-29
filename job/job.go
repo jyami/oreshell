@@ -2,6 +2,7 @@ package job
 
 import (
 	"fmt"
+	"oreshell/ast"
 	"oreshell/log"
 	"oreshell/process"
 	"strings"
@@ -12,6 +13,43 @@ type Job struct {
 	processes   []*process.Process
 	foreground  bool
 	processesWg sync.WaitGroup
+	id          int
+}
+
+func NewJob(pipelineSequence *ast.PipelineSequence) (job *Job, err error) {
+
+	job = &Job{
+		foreground: pipelineSequence.Foreground,
+		id:         -1,
+	}
+
+	Jobs.registerJob(job)
+
+	for _, sc := range pipelineSequence.SimpleCommands {
+		p, err := process.NewProcess(sc, &job.processesWg)
+		if err != nil {
+			return nil, err
+		}
+		log.Logger.Printf("Process New %+v\n", p)
+
+		job.processes = append(job.processes, p)
+	}
+	log.Logger.Printf("job : %s", job.toJobString())
+	log.Logger.Printf("processes num %d\n", job.processNum())
+
+	for i, p := range job.processes {
+		//プロセス数が1つの場合はパイプ設定対象外
+		//プロセスが複数でも末尾のプロセスはパイプ設定対象外。
+		if i+1 < job.processNum() {
+			log.Logger.Printf("pipe %+v\n", p)
+			err = p.PipeWithNext(job.processes[i+1])
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return job, nil
 }
 
 func (me *Job) processNum() int {
@@ -31,7 +69,7 @@ func (me *Job) toJobString() (s string) {
 	s = strings.Join(a, " | ")
 
 	if !me.foreground {
-		s = fmt.Sprintf("%s &", s)
+		s = fmt.Sprintf("[%d] %s &", me.id, s)
 	}
 
 	return s
@@ -73,8 +111,9 @@ func (me *Job) waitDone(print bool) {
 
 	if print {
 		log.Logger.Printf("background job done. \n")
-		JobStatusNotify <- fmt.Sprintf("Done. %s\n", me.toJobString())
+		JobStatusNotify <- fmt.Sprintf("%s %s\n", me.processes[me.processNum()-1].Status(), me.toJobString())
 	} else {
 		log.Logger.Printf("foreground job done. \n")
 	}
+	Jobs.unregisterJob(me)
 }

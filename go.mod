@@ -1,8 +1,9 @@
 module oreshell
 
-go 1.19
+go 1.22
 
 require (
+	github.com/deckarep/golang-set/v2 v2.6.0
 	github.com/stretchr/testify v1.8.0
 	golang.org/x/sys v0.17.0
 )

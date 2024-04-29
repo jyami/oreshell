@@ -40,6 +40,7 @@ type Process struct {
 	osProcess    *os.Process
 	variablesMap map[string]string
 	wg           *sync.WaitGroup
+	status       string
 }
 
 // 該当パスが存在するかどうか
@@ -254,6 +255,7 @@ func (me *Process) Start(foreground bool) (err error) {
 	if err != nil {
 		return err
 	}
+	me.status = "running"
 
 	log.Logger.Printf("me.argv : %v", me.argv)
 	log.Logger.Printf("procAttr: %v", procAttr)
@@ -272,7 +274,12 @@ func (me *Process) Start(foreground bool) (err error) {
 			log.Logger.Fatalf("process.Wait %v", err)
 		} else {
 			log.Logger.Printf("%v : ps.String() : %s", me.argv, ps.String())
-			//log.Logger.Printf("ps.Sys() Signal(): %s", ps.Sys().(syscall.WaitStatus).Signal().String())
+			if ps.Sys().(syscall.WaitStatus).Signaled() {
+				me.status = ps.Sys().(syscall.WaitStatus).Signal().String()
+			} else {
+				me.status = "done"
+			}
+			log.Logger.Printf("me.status %s", me.status)
 			//log.Logger.Printf("ps.Sys() Stopignal(): %s", ps.Sys().(syscall.WaitStatus).StopSignal().String())
 			//log.Logger.Panicf("ps.String() : %#v", ps.SysUsage())
 		}
@@ -285,4 +292,8 @@ func (me *Process) Start(foreground bool) (err error) {
 	}()
 
 	return nil
+}
+
+func (me *Process) Status() string {
+	return me.status
 }
